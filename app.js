@@ -1,5 +1,16 @@
-// API URL 설정 (Cloud Run의 URL로 바꿔주세요)
-const API_URL = 'https://autobackjoon-day-28424568480.us-central1.run.app/';
+// API URL 설정 (환경에 따라 자동 설정)
+let API_URL;
+
+// 백엔드 서버 URL 감지 (개발/운영환경 자동 전환)
+if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+  // 로컬 개발 환경
+  API_URL = 'http://localhost:8080';
+} else {
+  // 운영 환경 - Cloud Run URL (실제 배포 URL로 변경해야 함)
+  API_URL = 'https://autobackjoon-28424568480.us-central1.run.app';
+}
+
+console.log(`API 서버 URL: ${API_URL}`);
 
 // DOM 요소 가져오기
 document.addEventListener('DOMContentLoaded', function() {
@@ -26,6 +37,9 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // 문제 큐 배열
   let problemsQueue = [];
+  
+  // 페이지 로드 시 Firebase에서 문제 목록 가져오기
+  loadProblemsFromFirebase();
   
   // 폼 제출 이벤트 처리
   problemForm.addEventListener('submit', async (e) => {
@@ -54,6 +68,8 @@ document.addEventListener('DOMContentLoaded', function() {
     errorContainer.classList.add('hidden');
     
     try {
+      console.log(`API 요청: ${API_URL}/generate - 문제 ID: ${problemId}`);
+      
       // API 호출
       const response = await fetch(`${API_URL}/generate`, {
         method: 'POST',
@@ -63,12 +79,18 @@ document.addEventListener('DOMContentLoaded', function() {
         body: JSON.stringify({ problem_id: problemId })
       });
       
+      if (!response.ok) {
+        console.error(`API 응답 오류: ${response.status} ${response.statusText}`);
+        const errorText = await response.text();
+        console.error(`응답 내용: ${errorText}`);
+        throw new Error(`API 응답 오류: ${response.status}`);
+      }
+      
       const data = await response.json();
+      console.log("API 응답 데이터:", data);
       
       if (data.error) {
         showError(data.error);
-        // 큐에서 해당 문제가 있으면 상태 업데이트
-        updateQueueItemStatus(problemId, 'failed');
         return;
       }
       
@@ -96,20 +118,47 @@ document.addEventListener('DOMContentLoaded', function() {
         sourcesList.innerHTML = '<li class="text-gray-500">참고 자료가 없습니다.</li>';
       }
       
-      // 큐에서 해당 문제가 있으면 상태 업데이트
-      updateQueueItemStatus(problemId, 'completed');
+      // 문제 목록 새로고침
+      loadProblemsFromFirebase();
     } catch (err) {
-      showError('API 요청 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-      console.error(err);
-      // 큐에서 해당 문제가 있으면 상태 업데이트
-      updateQueueItemStatus(problemId, 'failed');
+      console.error('API 요청 상세 오류:', err);
+      showError('API 요청 중 오류가 발생했습니다. 콘솔을 확인해 주세요.');
     } finally {
       loadingElem.classList.add('hidden');
     }
   }
   
+  // Firebase에서 문제 목록 가져오기
+  async function loadProblemsFromFirebase() {
+    try {
+      console.log('Firebase에서 문제 목록 가져오는 중...');
+      const response = await fetch(`${API_URL}/list-problems`);
+      
+      if (!response.ok) {
+        console.error(`문제 목록 가져오기 오류: ${response.status}`);
+        return;
+      }
+      
+      const data = await response.json();
+      console.log('Firebase에서 가져온 문제 목록:', data);
+      
+      if (data.problems && Array.isArray(data.problems)) {
+        // Firebase 문제 목록 형식 변환
+        problemsQueue = data.problems.map(p => ({
+          id: p.id,
+          status: p.data.status === 'pending' ? 'waiting' : p.data.status,
+          createdAt: p.data.created_at || new Date().toISOString()
+        }));
+        
+        updateQueueDisplay();
+      }
+    } catch (err) {
+      console.error('문제 목록 로드 중 오류:', err);
+    }
+  }
+  
   // 큐에 문제 추가
-  addToQueueForm.addEventListener('submit', (e) => {
+  addToQueueForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     
     const problemId = queueProblemId.value.trim();
@@ -129,20 +178,37 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
     
-    // 큐에 추가
-    problemsQueue.push({
-      id: problemId,
-      status: 'waiting' // waiting, processing, completed, failed
-    });
-    
-    // 큐 업데이트
-    updateQueueDisplay();
-    
-    // 입력 필드 초기화
-    queueProblemId.value = '';
+    try {
+      // Firebase에 문제 추가 요청
+      const response = await fetch(`${API_URL}/add-problem`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ problem_id: problemId })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        alert(`문제 추가 실패: ${errorData.error || '알 수 없는 오류'}`);
+        return;
+      }
+      
+      const data = await response.json();
+      console.log('Firebase에 문제 추가 결과:', data);
+      
+      // 문제 목록 새로고침
+      await loadProblemsFromFirebase();
+      
+      // 입력 필드 초기화
+      queueProblemId.value = '';
+    } catch (err) {
+      console.error('문제 추가 중 오류:', err);
+      alert('문제 추가 중 오류가 발생했습니다.');
+    }
   });
   
-  // 하나의 문제만 처리
+  // 하나의 문제만 처리 (일일 처리 실행)
   executeOneBtn.addEventListener('click', async () => {
     if (problemsQueue.length === 0) {
       alert('큐에 처리할 문제가 없습니다.');
@@ -150,23 +216,75 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // 대기 중인 문제만 필터링
-    const waitingProblems = problemsQueue.filter(item => item.status === 'waiting');
+    const waitingProblems = problemsQueue.filter(item => 
+      item.status === 'waiting' || item.status === 'pending'
+    );
     
     if (waitingProblems.length === 0) {
       alert('대기 중인 문제가 없습니다.');
       return;
     }
     
-    // 첫 번째 대기 중인 문제만 처리
-    const problem = waitingProblems[0];
-    problem.status = 'processing';
-    updateQueueDisplay();
-    
-    // 문제 번호를 검색 입력란에도 표시
-    document.getElementById('problemId').value = problem.id;
-    
-    // 코드 생성 (상태 업데이트는 generateCode 함수 내에서 처리)
-    await generateCode(problem.id);
+    try {
+      // 로딩 표시
+      loadingElem.classList.remove('hidden');
+      
+      // 백엔드에 일일 처리 요청
+      const response = await fetch(`${API_URL}/run-daily`, {
+        method: 'POST'
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        alert(`일일 처리 실패: ${errorData.error || '알 수 없는 오류'}`);
+        loadingElem.classList.add('hidden');
+        return;
+      }
+      
+      const data = await response.json();
+      console.log('일일 처리 결과:', data);
+      
+      if (data.message) {
+        // 처리할 문제가 없는 경우
+        alert(data.message);
+      } else if (data.result) {
+        // 문제가 처리된 경우, 결과 표시
+        const problemId = data.problem_id;
+        document.getElementById('problemId').value = problemId;
+        
+        // 결과 표시
+        resultTitle.textContent = `백준 ${problemId}번 문제 해결 코드`;
+        codeResult.textContent = data.result.code;
+        
+        // 빈 결과 숨기고 코드 표시
+        emptyResult.classList.add('hidden');
+        codeResultWrapper.classList.remove('hidden');
+        
+        // 코드 하이라이팅 적용
+        hljs.highlightElement(codeResult);
+        
+        // 참고 자료 표시
+        sourcesList.innerHTML = '';
+        if (data.result.sources && data.result.sources.length > 0) {
+          data.result.sources.forEach((link, idx) => {
+            const host = new URL(link).hostname;
+            const li = document.createElement('li');
+            li.innerHTML = `${idx + 1}. <a href="${link}" target="_blank" class="text-blue-500 hover:underline">${host}</a>`;
+            sourcesList.appendChild(li);
+          });
+        } else {
+          sourcesList.innerHTML = '<li class="text-gray-500">참고 자료가 없습니다.</li>';
+        }
+      }
+      
+      // 문제 목록 새로고침
+      await loadProblemsFromFirebase();
+    } catch (err) {
+      console.error('일일 처리 중 오류:', err);
+      alert('일일 처리 중 오류가 발생했습니다.');
+    } finally {
+      loadingElem.classList.add('hidden');
+    }
   });
   
   // 큐 표시 업데이트
@@ -194,6 +312,7 @@ document.addEventListener('DOMContentLoaded', function() {
       let statusBadge = '';
       switch(problem.status) {
         case 'waiting':
+        case 'pending':
           statusBadge = '<span class="px-2 py-1 text-xs rounded-full bg-gray-200 text-gray-800">대기 중</span>';
           break;
         case 'processing':
@@ -211,6 +330,9 @@ document.addEventListener('DOMContentLoaded', function() {
         <td class="px-4 py-2">${problem.id}</td>
         <td class="px-4 py-2">${statusBadge}</td>
         <td class="px-4 py-2">
+          <button class="text-blue-500 hover:text-blue-700 view-btn mr-2" data-id="${problem.id}">
+            조회
+          </button>
           <button class="text-red-500 hover:text-red-700 remove-btn" data-id="${problem.id}">
             삭제
           </button>
@@ -222,26 +344,48 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 삭제 버튼 이벤트 추가
     document.querySelectorAll('.remove-btn').forEach(btn => {
-      btn.addEventListener('click', function() {
+      btn.addEventListener('click', async function() {
         const problemId = this.getAttribute('data-id');
-        removeFromQueue(problemId);
+        if (confirm(`문제 ${problemId}를 큐에서 삭제하시겠습니까?`)) {
+          try {
+            const response = await fetch(`${API_URL}/delete-problem/${problemId}`, {
+              method: 'DELETE'
+            });
+            
+            if (!response.ok) {
+              const errorData = await response.json();
+              alert(`삭제 실패: ${errorData.error || '알 수 없는 오류'}`);
+              return;
+            }
+            
+            // 문제 목록 새로고침
+            await loadProblemsFromFirebase();
+          } catch (err) {
+            console.error('문제 삭제 중 오류:', err);
+            alert('문제 삭제 중 오류가 발생했습니다.');
+          }
+        }
       });
     });
-  }
-  
-  // 큐에서 제거
-  function removeFromQueue(problemId) {
-    problemsQueue = problemsQueue.filter(item => item.id !== problemId);
-    updateQueueDisplay();
-  }
-  
-  // 큐 아이템 상태 업데이트
-  function updateQueueItemStatus(problemId, status) {
-    const item = problemsQueue.find(item => item.id === problemId);
-    if (item) {
-      item.status = status;
-      updateQueueDisplay();
-    }
+    
+    // 조회 버튼 이벤트 추가
+    document.querySelectorAll('.view-btn').forEach(btn => {
+      btn.addEventListener('click', async function() {
+        const problemId = this.getAttribute('data-id');
+        document.getElementById('problemId').value = problemId;
+        
+        // 완료된 문제인 경우 Firebase에서 코드 가져오기
+        const problem = problemsQueue.find(p => p.id === problemId);
+        if (problem && problem.status === 'completed') {
+          // Firebase에서 코드 가져오는 기능은 추가 구현 필요
+          // 일단 API 직접 호출
+          await generateCode(problemId);
+        } else {
+          // 미완료 문제는 생성 요청
+          await generateCode(problemId);
+        }
+      });
+    });
   }
   
   // 복사 버튼 기능
@@ -291,6 +435,6 @@ document.addEventListener('DOMContentLoaded', function() {
     loadingElem.classList.add('hidden');
   }
   
-  // 초기화
-  updateQueueDisplay();
+  // 자동 새로고침 설정 (30초마다 Firebase 상태 업데이트)
+  setInterval(loadProblemsFromFirebase, 30000);
 });
