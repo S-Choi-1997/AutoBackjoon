@@ -1,15 +1,10 @@
 steps:
-# Cloud Storage에 정적 파일 업로드
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   entrypoint: 'gsutil'
   args: ['-m', 'cp', 'index.html', 'styles.css', 'app.js', 'gs://${_BUCKET_NAME}/']
-
-# 업로드된 파일을 공개적으로 접근 가능하게 설정
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   entrypoint: 'gsutil'
-  args: ['-m', 'acl', 'ch', '-r', '-u', 'AllUsers:R', 'gs://${_BUCKET_NAME}/']
-
-# 웹 설정 (index.html이 기본 페이지가 되도록)
+  args: ['-m', 'iam', 'ch', 'allUsers:objectViewer', 'gs://${_BUCKET_NAME}/*.js', 'gs://${_BUCKET_NAME}/*.html', 'gs://${_BUCKET_NAME}/*.css']
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   entrypoint: 'gsutil'
   args: ['web', 'set', '-m', 'index.html', 'gs://${_BUCKET_NAME}/']
@@ -18,4 +13,6 @@ options:
   logging: CLOUD_LOGGING_ONLY
 
 substitutions:
-  _BUCKET_NAME: autobj1  # Cloud Storage 버킷 이름 (변경해주세요)
+  _BUCKET_NAME: autobj1
+
+serviceAccount: 'projects/blissful-axiom-449912-a8/serviceAccounts/customservice@blissful-axiom-449912-a8.iam.gserviceaccount.com'
