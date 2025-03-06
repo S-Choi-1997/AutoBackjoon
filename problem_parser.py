@@ -19,7 +19,9 @@ app = Flask(__name__)
 
 # CORS 설정 - Cloud Storage 정적 웹사이트 도메인 허용
 CORS_ORIGINS = os.getenv('CORS_ORIGINS', '*').split(',')
-CORS(app, resources={r"/*": {"origins": CORS_ORIGINS}})
+CORS(app, origins=["https://storage.googleapis.com", "*"], 
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"])
 
 # 환경 변수 로드 (Cloud Run에서는 .env 파일 대신 환경변수 사용)
 load_dotenv()  # 로컬 개발 환경에서만 필요
