@@ -1,5 +1,5 @@
 // API URL 설정 (Cloud Run의 URL로 바꿔주세요)
-const API_URL = 'https://your-backend-url.run.app';
+const API_URL = 'https://autobackjoon-day-28424568480.us-central1.run.app/';
 
 // DOM 요소 가져오기
 document.addEventListener('DOMContentLoaded', function() {
