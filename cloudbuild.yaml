@@ -2,12 +2,6 @@ steps:
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   entrypoint: 'gsutil'
   args: ['-m', 'cp', 'index.html', 'styles.css', 'app.js', 'gs://${_BUCKET_NAME}/']
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  entrypoint: 'gsutil'
-  args: ['-m', 'iam', 'ch', 'allUsers:objectViewer', 'gs://${_BUCKET_NAME}/*.js', 'gs://${_BUCKET_NAME}/*.html', 'gs://${_BUCKET_NAME}/*.css']
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  entrypoint: 'gsutil'
-  args: ['web', 'set', '-m', 'index.html', 'gs://${_BUCKET_NAME}/']
 
 options:
   logging: CLOUD_LOGGING_ONLY
