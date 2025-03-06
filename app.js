@@ -159,15 +159,35 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       
       const data = await response.json();
-      console.log('Firebase에서 가져온 문제 목록:', data);
+      console.log('Firebase에서 가져온 문제 목록 원본:', data);
       
       if (data.problems && Array.isArray(data.problems)) {
-        // Firebase 문제 목록 형식 변환
-        problemsQueue = data.problems.map(p => ({
-          id: p.id,
-          status: p.data.status === 'pending' ? 'waiting' : p.data.status,
-          createdAt: p.data.created_at || new Date().toISOString()
-        }));
+        // Firebase 문제 목록 형식 변환 - 상태 매핑 부분 수정
+        problemsQueue = data.problems.map(p => {
+          // 원본 데이터 로깅
+          console.log(`문제 ${p.id} 데이터:`, p.data);
+          
+          // 상태값 확인 (completed 여부 명확히 파악)
+          const rawStatus = p.data.status || 'unknown';
+          console.log(`문제 ${p.id} 원본 상태: ${rawStatus}`);
+          
+          // 프론트엔드에서 사용할 상태값으로 변환
+          let status = rawStatus;
+          if (rawStatus === 'pending') {
+            status = 'waiting';
+          }
+          
+          // completed 여부 명확히 저장
+          const isCompleted = (rawStatus === 'completed');
+          console.log(`문제 ${p.id} 변환된 상태: ${status}, 완료여부: ${isCompleted}`);
+          
+          return {
+            id: p.id,
+            status: status,
+            isCompleted: isCompleted,  // 명시적으로 completed 여부 저장
+            createdAt: p.data.created_at || new Date().toISOString()
+          };
+        });
         
         updateQueueDisplay();
         
@@ -385,7 +405,8 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       
       // 문제 상태에 따라 버튼 텍스트 및 스타일 변경
-      const isCompleted = problem.status === 'completed';
+      // isCompleted 필드를 사용하여 완료 여부 판단 (수정된 부분)
+      const isCompleted = problem.isCompleted;
       const buttonText = isCompleted ? '조회' : '실행';
       const buttonClass = isCompleted 
         ? 'text-blue-500 hover:text-blue-700' 
@@ -395,7 +416,7 @@ document.addEventListener('DOMContentLoaded', function() {
         <td class="px-4 py-2">${problem.id}</td>
         <td class="px-4 py-2">${statusBadge}</td>
         <td class="px-4 py-2">
-          <button class="${buttonClass} view-btn mr-2" data-id="${problem.id}" data-status="${problem.status}">
+          <button class="${buttonClass} view-btn mr-2" data-id="${problem.id}" data-completed="${isCompleted}">
             ${buttonText}
           </button>
           <button class="text-red-500 hover:text-red-700 remove-btn" data-id="${problem.id}">
@@ -443,17 +464,18 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     });
     
-    // 조회/실행 버튼 이벤트 추가
+    // 조회/실행 버튼 이벤트 추가 - 여기서 수정
     document.querySelectorAll('.view-btn').forEach(btn => {
       btn.addEventListener('click', async function() {
         const problemId = this.getAttribute('data-id');
-        const status = this.getAttribute('data-status');
+        // data-status 대신 data-completed 사용 (수정된 부분)
+        const isCompleted = this.getAttribute('data-completed') === 'true';
         document.getElementById('problemId').value = problemId;
         
-        console.log(`문제 ${problemId} 버튼 클릭, 상태: ${status}`);
+        console.log(`문제 ${problemId} 버튼 클릭, 완료 여부: ${isCompleted}`);
         
         // 완료된 문제인 경우 Firebase에서 코드 가져오기
-        if (status === 'completed') {
+        if (isCompleted) {
           try {
             // 로딩 표시
             loadingElem.classList.remove('hidden');
@@ -467,42 +489,20 @@ document.addEventListener('DOMContentLoaded', function() {
             const response = await fetch(`${API_URL}/get-problem-code/${problemId}`);
             console.log(`API 응답 상태: ${response.status}`);
             
-            const responseText = await response.text();
-            console.log(`API 응답 내용: ${responseText.substring(0, 100)}...`);
-            
-            let data;
-            try {
-              // JSON 파싱 시도
-              data = JSON.parse(responseText);
-            } catch (e) {
-              console.error('JSON 파싱 실패:', e);
-              throw new Error('응답 데이터 형식 오류');
-            }
-            
             if (!response.ok) {
-              console.error('코드 조회 실패:', data);
-              
-              // 가능한 오류 상황별 처리
-              if (data.status === 'completed') {
-                showError(`저장된 코드를 찾을 수 없습니다. 코드를 다시 생성합니다.`);
-                await generateCode(problemId);
-                return;
-              } else if (data.status === 'not_found') {
-                showError(`문제 ${problemId}를 찾을 수 없습니다. 코드를 새로 생성합니다.`);
-                await generateCode(problemId);
-                return;
-              } else {
-                showError(data.error || '알 수 없는 오류');
-                loadingElem.classList.add('hidden');
-                return;
-              }
+              console.error(`코드 조회 실패 - 상태 코드: ${response.status}`);
+              showError(`코드 조회 실패: ${response.statusText}. 코드를 다시 생성합니다.`);
+              await generateCode(problemId);
+              return;
             }
             
+            const data = await response.json();
             console.log('Firebase에서 가져온 코드 데이터:', data);
             
-            if (!data.code) {
-              console.error('코드 데이터가 비어있음');
-              showError('가져온 코드가 비어있습니다. 코드를 다시 생성합니다.');
+            // API 응답 상태 확인 (수정된 부분) - success와 completed 구분
+            if (data.status !== 'success' || !data.code) {
+              console.error('코드 데이터 오류:', data);
+              showError('코드를 가져오지 못했습니다. 코드를 다시 생성합니다.');
               await generateCode(problemId);
               return;
             }
@@ -521,7 +521,6 @@ document.addEventListener('DOMContentLoaded', function() {
             // 참고 자료 표시
             sourcesList.innerHTML = '';
             if (data.sources && data.sources.length > 0) {
-              console.log(`참고 자료 ${data.sources.length}개 표시`);
               data.sources.forEach((link, idx) => {
                 const host = new URL(link).hostname;
                 const li = document.createElement('li');
@@ -529,7 +528,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 sourcesList.appendChild(li);
               });
             } else {
-              console.log('참고 자료 없음');
               sourcesList.innerHTML = '<li class="text-gray-500">참고 자료가 없습니다.</li>';
             }
             
@@ -542,7 +540,7 @@ document.addEventListener('DOMContentLoaded', function() {
           }
         } else {
           // 미완료 문제는 생성 요청
-          console.log(`미완료 문제(${status})이므로 코드 생성 요청`);
+          console.log(`미완료 문제이므로 코드 생성 요청`);
           await generateCode(problemId);
         }
       });
