@@ -33,7 +33,8 @@ def index():
         <style>
             body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
             form { margin-top: 20px; }
-            input, button { padding: 8px; margin: 5px 0; }
+            input, button, textarea { padding: 8px; margin: 5px 0; }
+            textarea { width: 100%; height: 100px; }
             .container { display: flex; flex-direction: column; gap: 20px; }
             .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; }
             h2 { margin-top: 0; }
@@ -47,8 +48,8 @@ def index():
                 <h2>문제 추가</h2>
                 <form id="problemForm">
                     <div>
-                        <label for="problem_id">문제 번호:</label>
-                        <input type="text" id="problem_id" name="problem_id" required>
+                        <label for="problem_ids">문제 번호 (여러 개는 공백이나 줄바꿈으로 구분):</label>
+                        <textarea id="problem_ids" name="problem_ids" required placeholder="예: 1000 1001 1002&#10;2000&#10;3000"></textarea>
                     </div>
                     <button type="submit">추가하기</button>
                 </form>
@@ -72,23 +73,32 @@ def index():
             // 문제 추가 폼 제출
             document.getElementById('problemForm').addEventListener('submit', async function(e) {
                 e.preventDefault();
-                const problem_id = document.getElementById('problem_id').value;
+                const problemIdsText = document.getElementById('problem_ids').value;
                 const resultDiv = document.getElementById('addResult');
                 
                 try {
                     resultDiv.innerHTML = '<div>처리 중...</div>';
-                    const response = await fetch('/add-problem', {
+                    
+                    // 공백이나 줄바꿈으로 구분된 문제 ID를 배열로 변환
+                    const problemIds = problemIdsText.split(/[\s,]+/).filter(id => id.trim() !== '');
+                    
+                    if (problemIds.length === 0) {
+                        resultDiv.innerHTML = '<div style="color: red;">문제 ID를 하나 이상 입력하세요.</div>';
+                        return;
+                    }
+                    
+                    const response = await fetch('/add-problems', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
-                        body: JSON.stringify({ problem_id }),
+                        body: JSON.stringify({ problem_ids: problemIds }),
                     });
                     
                     const data = await response.json();
                     if (response.ok) {
                         resultDiv.innerHTML = `<div style="color: green;">성공: ${data.message}</div>`;
-                        document.getElementById('problem_id').value = '';
+                        document.getElementById('problem_ids').value = '';
                     } else {
                         resultDiv.innerHTML = `<div style="color: red;">오류: ${data.error}</div>`;
                     }
@@ -171,7 +181,7 @@ def health_check():
 
 @app.route('/add-problem', methods=['POST'])
 def add_problem():
-    """새 문제를 Firebase에 추가하는 엔드포인트"""
+    """단일 문제를 Firebase에 추가하는 엔드포인트 (기존 호환성 유지)"""
     data = request.json
     problem_id = data.get('problem_id')
     
@@ -188,6 +198,40 @@ def add_problem():
         return jsonify({
             "status": "success",
             "message": f"문제 {problem_id}가 추가되었습니다."
+        })
+    except Exception as e:
+        logger.error(f"문제 추가 중 오류: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/add-problems', methods=['POST'])
+def add_problems():
+    """여러 문제를 Firebase에 추가하는 엔드포인트"""
+    data = request.json
+    problem_ids = data.get('problem_ids', [])
+    
+    if not problem_ids or not isinstance(problem_ids, list):
+        return jsonify({"error": "problem_ids 배열이 필요합니다."}), 400
+    
+    try:
+        success_count = 0
+        for problem_id in problem_ids:
+            problem_id = str(problem_id).strip()
+            if problem_id:
+                # 기존 문서 확인
+                doc_ref = db.collection('problems').document(problem_id)
+                doc = doc_ref.get()
+                
+                # 존재하지 않는 경우만 추가
+                if not doc.exists or doc.to_dict().get('status') != 'pending':
+                    doc_ref.set({
+                        'problem_id': problem_id,
+                        'status': 'pending'
+                    })
+                    success_count += 1
+        
+        return jsonify({
+            "status": "success",
+            "message": f"{success_count}개의 문제가 추가되었습니다."
         })
     except Exception as e:
         logger.error(f"문제 추가 중 오류: {e}")
