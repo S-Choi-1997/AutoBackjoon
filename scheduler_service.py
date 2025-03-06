@@ -20,6 +20,150 @@ db = firestore.client()
 # 백준 솔버 서비스 URL
 SOLVER_URL = os.getenv('SOLVER_SERVICE_URL')
 
+@app.route('/', methods=['GET'])
+def index():
+    """간단한 웹 폼을 제공하는 홈페이지"""
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>백준 문제 추가</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+            form { margin-top: 20px; }
+            input, button { padding: 8px; margin: 5px 0; }
+            .container { display: flex; flex-direction: column; gap: 20px; }
+            .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; }
+            h2 { margin-top: 0; }
+        </style>
+    </head>
+    <body>
+        <h1>백준 문제 자동화 시스템</h1>
+        
+        <div class="container">
+            <div class="card">
+                <h2>문제 추가</h2>
+                <form id="problemForm">
+                    <div>
+                        <label for="problem_id">문제 번호:</label>
+                        <input type="text" id="problem_id" name="problem_id" required>
+                    </div>
+                    <button type="submit">추가하기</button>
+                </form>
+                <div id="addResult" style="margin-top: 10px;"></div>
+            </div>
+            
+            <div class="card">
+                <h2>일일 처리 수동 실행</h2>
+                <button id="runDaily">지금 실행하기</button>
+                <div id="runResult" style="margin-top: 10px;"></div>
+            </div>
+            
+            <div class="card">
+                <h2>대기 중인 문제 목록</h2>
+                <button id="refreshProblems">새로고침</button>
+                <div id="problemsList" style="margin-top: 10px;"></div>
+            </div>
+        </div>
+        
+        <script>
+            // 문제 추가 폼 제출
+            document.getElementById('problemForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                const problem_id = document.getElementById('problem_id').value;
+                const resultDiv = document.getElementById('addResult');
+                
+                try {
+                    resultDiv.innerHTML = '<div>처리 중...</div>';
+                    const response = await fetch('/add-problem', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ problem_id }),
+                    });
+                    
+                    const data = await response.json();
+                    if (response.ok) {
+                        resultDiv.innerHTML = `<div style="color: green;">성공: ${data.message}</div>`;
+                        document.getElementById('problem_id').value = '';
+                    } else {
+                        resultDiv.innerHTML = `<div style="color: red;">오류: ${data.error}</div>`;
+                    }
+                } catch (error) {
+                    resultDiv.innerHTML = `<div style="color: red;">오류: ${error.message}</div>`;
+                }
+            });
+            
+            // 일일 처리 수동 실행
+            document.getElementById('runDaily').addEventListener('click', async function() {
+                const resultDiv = document.getElementById('runResult');
+                
+                try {
+                    resultDiv.innerHTML = '<div>처리 중... (최대 5분 소요)</div>';
+                    const response = await fetch('/run-daily', {
+                        method: 'POST'
+                    });
+                    
+                    const data = await response.json();
+                    if (response.ok) {
+                        if (data.message) {
+                            resultDiv.innerHTML = `<div>${data.message}</div>`;
+                        } else {
+                            resultDiv.innerHTML = `<div style="color: green;">
+                                문제 ${data.problem_id} 처리 완료<br>
+                                ${data.result.github_upload === '성공' ? 
+                                    `GitHub에 업로드됨: ${data.result.github_file}` : 
+                                    'GitHub 업로드 안됨'}
+                            </div>`;
+                        }
+                    } else {
+                        resultDiv.innerHTML = `<div style="color: red;">오류: ${data.error}</div>`;
+                    }
+                } catch (error) {
+                    resultDiv.innerHTML = `<div style="color: red;">오류: ${error.message}</div>`;
+                }
+            });
+            
+            // 문제 목록 새로고침
+            async function loadProblems() {
+                const listDiv = document.getElementById('problemsList');
+                
+                try {
+                    listDiv.innerHTML = '<div>로딩 중...</div>';
+                    const response = await fetch('/list-problems');
+                    
+                    const data = await response.json();
+                    if (response.ok) {
+                        if (data.problems.length === 0) {
+                            listDiv.innerHTML = '<div>대기 중인 문제가 없습니다.</div>';
+                        } else {
+                            let html = '<ul>';
+                            data.problems.forEach(p => {
+                                html += `<li>문제 ${p.id}</li>`;
+                            });
+                            html += '</ul>';
+                            listDiv.innerHTML = html;
+                        }
+                    } else {
+                        listDiv.innerHTML = `<div style="color: red;">오류: ${data.error}</div>`;
+                    }
+                } catch (error) {
+                    listDiv.innerHTML = `<div style="color: red;">오류: ${error.message}</div>`;
+                }
+            }
+            
+            document.getElementById('refreshProblems').addEventListener('click', loadProblems);
+            
+            // 페이지 로드 시 문제 목록 로드
+            loadProblems();
+        </script>
+    </body>
+    </html>
+    """
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """상태 확인 엔드포인트"""
@@ -47,6 +191,28 @@ def add_problem():
         })
     except Exception as e:
         logger.error(f"문제 추가 중 오류: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/list-problems', methods=['GET'])
+def list_problems():
+    """대기 중인 문제 목록을 반환하는 엔드포인트"""
+    try:
+        problems_ref = db.collection('problems').where('status', '==', 'pending')
+        problems = list(problems_ref.stream())
+        
+        problem_list = []
+        for problem in problems:
+            problem_list.append({
+                'id': problem.id,
+                'data': problem.to_dict()
+            })
+        
+        return jsonify({
+            "status": "success",
+            "problems": problem_list
+        })
+    except Exception as e:
+        logger.error(f"문제 목록 조회 중 오류: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/run-daily', methods=['POST'])
