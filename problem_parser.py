@@ -9,10 +9,11 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from openai import OpenAI
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 
 # Flask 애플리케이션 초기화
 app = Flask(__name__)
-
+CORS(app, resources={r"/*": {"origins": "https://storage.googleapis.com"}})
 # 환경 변수 로드 (.env)
 load_dotenv()
 
