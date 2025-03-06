@@ -260,15 +260,18 @@ async def process_problem(problem_id):
     }
 
 # Flask 라우트 정의
+# 이 함수를 비동기가 아닌 동기 함수로 변경
 @app.route('/generate', methods=['POST'])
-async def generate_solution():
+def generate_solution():
     data = request.json
     problem_id = data.get('problem_id')
     
     if not problem_id:
         return jsonify({"error": "problem_id가 필요합니다."}), 400
     
-    result = await process_problem(problem_id)
+    # 비동기 함수를 동기적으로 실행
+    import asyncio
+    result = asyncio.run(process_problem(problem_id))
     return jsonify(result)
 
 @app.route('/health', methods=['GET'])
