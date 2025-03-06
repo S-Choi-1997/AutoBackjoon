@@ -10,16 +10,34 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import firestore
 
 # Flask 애플리케이션 초기화
 app = Flask(__name__)
-CORS(app)
-# 환경 변수 로드 (.env)
-load_dotenv()
 
-# 로깅 설정 (INFO 레벨만 보이도록 설정)
+# CORS 설정 - Cloud Storage 정적 웹사이트 도메인 허용
+CORS_ORIGINS = os.getenv('CORS_ORIGINS', '*').split(',')
+CORS(app, resources={r"/*": {"origins": CORS_ORIGINS}})
+
+# 환경 변수 로드 (Cloud Run에서는 .env 파일 대신 환경변수 사용)
+load_dotenv()  # 로컬 개발 환경에서만 필요
+
+# 로깅 설정 (Cloud Run에서는 INFO 레벨이 표준)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Firebase 초기화
+# Cloud Run에서는 기본 인증 사용 (별도 인증 파일 불필요)
+try:
+    firebase_admin.initialize_app()
+    db = firestore.client()
+    logger.info("Firebase 연결 성공")
+    FIREBASE_ENABLED = True
+except Exception as e:
+    logger.error(f"Firebase 초기화 오류: {e}", exc_info=True)
+    FIREBASE_ENABLED = False
 
 # 최적화를 위한 전역 HTTP 세션(Session) 생성
 session = requests.Session()
@@ -41,7 +59,7 @@ def fetch_google_results(problem_id):
     """
     logger.info(f"[1/4] Google Custom Search로 백준 {problem_id} 검색 중...")
 
-    # .env 등에 미리 설정된 API 키와 CSE ID
+    # 환경 변수에서 API 키와 CSE ID 가져오기
     API_KEY = os.getenv("GCP_API_KEY")  # GCP에서 발급한 API 키
     CX_ID = os.getenv("CSE_ID")         # Custom Search Engine ID
 
@@ -224,10 +242,32 @@ def upload_to_github(file_name, file_content, repo, branch, token):
         return False
 
 async def process_problem(problem_id):
+    # Firebase 문제 상태 업데이트
+    if FIREBASE_ENABLED:
+        try:
+            problem_ref = db.collection('problems').document(problem_id)
+            problem_ref.update({
+                'status': 'processing'
+            })
+        except Exception as e:
+            logger.error(f"Firebase 상태 업데이트 오류: {e}", exc_info=True)
+    
     # 1. Google Custom Search API
     tistory_links = fetch_google_results(problem_id)
     if not tistory_links:
         logger.error("검색된 Tistory 링크가 없습니다.")
+        
+        # Firebase 문제 상태 업데이트 (실패)
+        if FIREBASE_ENABLED:
+            try:
+                problem_ref = db.collection('problems').document(problem_id)
+                problem_ref.update({
+                    'status': 'failed',
+                    'error': "검색된 Tistory 링크가 없습니다."
+                })
+            except Exception as e:
+                logger.error(f"Firebase 상태 업데이트 오류: {e}", exc_info=True)
+        
         return {"error": "검색된 Tistory 링크가 없습니다."}
 
     logger.info("검색된 Tistory 링크 목록:")
@@ -241,6 +281,18 @@ async def process_problem(problem_id):
     final_result = send_results_to_gpt(results)
     if not final_result:
         logger.error("통합 코드 생성에 실패했습니다.")
+        
+        # Firebase 문제 상태 업데이트 (실패)
+        if FIREBASE_ENABLED:
+            try:
+                problem_ref = db.collection('problems').document(problem_id)
+                problem_ref.update({
+                    'status': 'failed',
+                    'error': "통합 코드 생성에 실패했습니다."
+                })
+            except Exception as e:
+                logger.error(f"Firebase 상태 업데이트 오류: {e}", exc_info=True)
+        
         return {"error": "통합 코드 생성에 실패했습니다."}
 
     # 4. GitHub에 업로드 (선택적)
@@ -253,18 +305,116 @@ async def process_problem(problem_id):
     if repo and token:
         github_result = upload_to_github(file_name, final_result, repo, branch, token)
     
+    # Firebase 문제 상태 업데이트 (완료)
+    if FIREBASE_ENABLED:
+        try:
+            problem_ref = db.collection('problems').document(problem_id)
+            problem_ref.update({
+                'status': 'completed',
+                'code': final_result,
+                'github_upload': "성공" if github_result else "실패 또는 미수행",
+                'github_file': f"BOJ_{problem_id}.java" if github_result else None,
+                'sources': tistory_links
+            })
+        except Exception as e:
+            logger.error(f"Firebase 상태 업데이트 오류: {e}", exc_info=True)
+    
     return {
         "problem_id": problem_id,
         "code": final_result,
         "github_upload": "성공" if github_result else "실패 또는 미수행",
         "github_file": f"BOJ_{problem_id}.java" if github_result else None,
-        "sources": tistory_links  # 이 부분 추가 필요
+        "sources": tistory_links
     }
 
-# Flask 라우트 정의
-# 이 함수를 비동기가 아닌 동기 함수로 변경
+# 건강 체크 엔드포인트
+@app.route('/health', methods=['GET'])
+def health_check():
+    """상태 확인 엔드포인트"""
+    firebase_status = "enabled" if FIREBASE_ENABLED else "disabled"
+    return jsonify({
+        "status": "healthy",
+        "firebase": firebase_status
+    }), 200
+
+# 문제 추가 엔드포인트
+@app.route('/add-problem', methods=['POST'])
+def add_problem():
+    """새 문제를 Firebase에 추가하는 엔드포인트"""
+    data = request.json
+    problem_id = data.get('problem_id')
+    
+    if not problem_id:
+        return jsonify({"error": "problem_id가 필요합니다."}), 400
+    
+    if not FIREBASE_ENABLED:
+        return jsonify({"error": "Firebase가 비활성화되어 있습니다."}), 500
+    
+    try:
+        # Firebase에 문제 추가
+        db.collection('problems').document(problem_id).set({
+            'problem_id': problem_id,
+            'status': 'pending'
+        })
+        
+        return jsonify({
+            "status": "success",
+            "message": f"문제 {problem_id}가 추가되었습니다."
+        })
+    except Exception as e:
+        logger.error(f"문제 추가 중 오류: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+# 문제 목록 조회 엔드포인트
+@app.route('/list-problems', methods=['GET'])
+def list_problems():
+    """문제 목록을 반환하는 엔드포인트"""
+    if not FIREBASE_ENABLED:
+        return jsonify({"error": "Firebase가 비활성화되어 있습니다."}), 500
+    
+    try:
+        problems_ref = db.collection('problems')
+        problems = list(problems_ref.stream())
+        
+        problem_list = []
+        for problem in problems:
+            problem_data = problem.to_dict()
+            problem_list.append({
+                'id': problem.id,
+                'data': problem_data
+            })
+        
+        return jsonify({
+            "status": "success",
+            "problems": problem_list
+        })
+    except Exception as e:
+        logger.error(f"문제 목록 조회 중 오류: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+# 문제 삭제 엔드포인트
+@app.route('/delete-problem/<problem_id>', methods=['DELETE'])
+def delete_problem(problem_id):
+    """Firebase에서 문제 삭제"""
+    if not FIREBASE_ENABLED:
+        return jsonify({"error": "Firebase가 비활성화되어 있습니다."}), 500
+    
+    try:
+        problem_ref = db.collection('problems').document(problem_id)
+        problem_ref.delete()
+        
+        return jsonify({
+            "status": "success",
+            "message": f"문제 {problem_id}가 삭제되었습니다."
+        })
+    except Exception as e:
+        logger.error(f"문제 삭제 중 오류: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+# 문제 코드 생성 엔드포인트
 @app.route('/generate', methods=['POST'])
 def generate_solution():
+    """문제 해결 코드 생성 엔드포인트"""
     data = request.json
     problem_id = data.get('problem_id')
     
@@ -276,19 +426,45 @@ def generate_solution():
     result = asyncio.run(process_problem(problem_id))
     return jsonify(result)
 
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({"status": "healthy"}), 200
-
-@app.route('/', methods=['GET'])
-def home():
-    return jsonify({
-        "service": "백준 문제 해결기",
-        "endpoints": {
-            "/generate": "POST 요청으로 problem_id를 전송하여 백준 문제의 Java 솔루션을 생성",
-            "/health": "서비스 상태 확인"
-        }
-    })
+# 문제 처리 엔드포인트 (일일 자동 실행용)
+@app.route('/run-daily', methods=['POST'])
+def run_daily_problem():
+    """Cloud Scheduler에서 호출할 일일 실행 엔드포인트"""
+    # 간단한 인증 (선택사항)
+    secret = os.getenv('SCHEDULER_SECRET')
+    auth_header = request.headers.get('Authorization')
+    
+    if secret and (not auth_header or auth_header != f"Bearer {secret}"):
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    if not FIREBASE_ENABLED:
+        return jsonify({"error": "Firebase가 비활성화되어 있습니다."}), 500
+    
+    try:
+        # 1. Firebase에서 처리되지 않은 문제 가져오기
+        problems_ref = db.collection('problems').where('status', '==', 'pending').limit(1)
+        problems = list(problems_ref.stream())
+        
+        if not problems:
+            return jsonify({"message": "처리할 문제가 없습니다."}), 200
+        
+        # 첫 번째 문제 가져오기
+        problem_doc = problems[0]
+        problem_id = problem_doc.id
+        
+        # 2. 문제 처리
+        import asyncio
+        result = asyncio.run(process_problem(problem_id))
+        
+        return jsonify({
+            "status": "success",
+            "problem_id": problem_id,
+            "result": result
+        })
+        
+    except Exception as e:
+        logger.error(f"일일 작업 실행 중 오류: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 # 애플리케이션 실행
 if __name__ == "__main__":
