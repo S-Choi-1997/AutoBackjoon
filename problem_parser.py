@@ -257,7 +257,8 @@ async def process_problem(problem_id):
         "problem_id": problem_id,
         "code": final_result,
         "github_upload": "성공" if github_result else "실패 또는 미수행",
-        "github_file": f"BOJ_{problem_id}.java" if github_result else None
+        "github_file": f"BOJ_{problem_id}.java" if github_result else None,
+        "sources": tistory_links  # 이 부분 추가 필요
     }
 
 # Flask 라우트 정의
