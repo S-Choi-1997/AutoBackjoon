@@ -30,9 +30,7 @@ session.headers.update({
 })
 
 # OpenAI API 클라이언트 초기화 
-client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
-)
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 def fetch_google_results(problem_id):
     """
