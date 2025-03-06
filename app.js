@@ -332,198 +332,223 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   
   // 큐 표시 업데이트
-// 아래 코드를 app.js 파일의 updateQueueDisplay 함수 부분에 적용하세요
-
-// 큐 표시 업데이트
-function updateQueueDisplay() {
-  // 카운트 업데이트
-  queueCount.textContent = problemsQueue.length;
-  
-  // 큐가 비어있으면
-  if (problemsQueue.length === 0) {
-    problemQueue.innerHTML = `
-      <tr class="text-gray-500 italic">
-        <td class="px-4 py-2" colspan="3">큐에 문제가 없습니다.</td>
-      </tr>
-    `;
-    return;
-  }
-  
-  // 대기 중인 문제를 우선 표시하도록 정렬
-  const sortedProblems = [...problemsQueue].sort((a, b) => {
-    // 상태별 우선순위: waiting > processing > completed > failed
-    const priorityMap = { 
-      waiting: 0, 
-      pending: 0, 
-      processing: 1, 
-      completed: 2, 
-      failed: 3 
-    };
+  function updateQueueDisplay() {
+    // 카운트 업데이트
+    queueCount.textContent = problemsQueue.length;
     
-    return priorityMap[a.status] - priorityMap[b.status];
-  });
-  
-  // 큐 목록 업데이트
-  problemQueue.innerHTML = '';
-  sortedProblems.forEach(problem => {
-    const tr = document.createElement('tr');
-    tr.className = 'border-t border-gray-200 dark:border-gray-700';
-    
-    // 상태에 따른 배지 스타일
-    let statusBadge = '';
-    switch(problem.status) {
-      case 'waiting':
-      case 'pending':
-        statusBadge = '<span class="px-2 py-1 text-xs rounded-full bg-gray-200 text-gray-800">대기 중</span>';
-        break;
-      case 'processing':
-        statusBadge = '<span class="px-2 py-1 text-xs rounded-full bg-blue-200 text-blue-800">처리 중</span>';
-        break;
-      case 'completed':
-        statusBadge = '<span class="px-2 py-1 text-xs rounded-full bg-green-200 text-green-800">완료</span>';
-        break;
-      case 'failed':
-        statusBadge = '<span class="px-2 py-1 text-xs rounded-full bg-red-200 text-red-800">실패</span>';
-        break;
+    // 큐가 비어있으면
+    if (problemsQueue.length === 0) {
+      problemQueue.innerHTML = `
+        <tr class="text-gray-500 italic">
+          <td class="px-4 py-2" colspan="3">큐에 문제가 없습니다.</td>
+        </tr>
+      `;
+      return;
     }
     
-    // 문제 상태에 따라 버튼 텍스트 및 스타일 변경
-    const isCompleted = problem.status === 'completed';
-    const buttonText = isCompleted ? '조회' : '실행';
-    const buttonClass = isCompleted 
-      ? 'text-blue-500 hover:text-blue-700' 
-      : 'text-green-500 hover:text-green-700';
-    
-    tr.innerHTML = `
-      <td class="px-4 py-2">${problem.id}</td>
-      <td class="px-4 py-2">${statusBadge}</td>
-      <td class="px-4 py-2">
-        <button class="${buttonClass} view-btn mr-2" data-id="${problem.id}" data-status="${problem.status}">
-          ${buttonText}
-        </button>
-        <button class="text-red-500 hover:text-red-700 remove-btn" data-id="${problem.id}">
-          삭제
-        </button>
-      </td>
-    `;
-    
-    problemQueue.appendChild(tr);
-  });
-  
-  // 삭제 버튼 이벤트 추가
-  document.querySelectorAll('.remove-btn').forEach(btn => {
-    btn.addEventListener('click', async function() {
-      const problemId = this.getAttribute('data-id');
-      if (confirm(`문제 ${problemId}를 큐에서 삭제하시겠습니까?`)) {
-        try {
-          refreshStatus.textContent = '문제 삭제 중...';
-          refreshStatus.classList.remove('hidden');
-          
-          const response = await fetch(`${API_URL}/delete-problem/${problemId}`, {
-            method: 'DELETE'
-          });
-          
-          if (!response.ok) {
-            const errorData = await response.json();
-            alert(`삭제 실패: ${errorData.error || '알 수 없는 오류'}`);
-            refreshStatus.classList.add('hidden');
-            return;
-          }
-          
-          // 문제 목록 새로고침
-          await loadProblemsFromFirebase(true);
-          
-          refreshStatus.textContent = '문제가 성공적으로 삭제되었습니다';
-          setTimeout(() => {
-            refreshStatus.classList.add('hidden');
-          }, 1500);
-        } catch (err) {
-          console.error('문제 삭제 중 오류:', err);
-          alert('문제 삭제 중 오류가 발생했습니다.');
-          refreshStatus.classList.add('hidden');
-        }
-      }
-    });
-  });
-  
-  // 조회/실행 버튼 이벤트 추가
-  document.querySelectorAll('.view-btn').forEach(btn => {
-    btn.addEventListener('click', async function() {
-      const problemId = this.getAttribute('data-id');
-      const status = this.getAttribute('data-status');
-      document.getElementById('problemId').value = problemId;
+    // 대기 중인 문제를 우선 표시하도록 정렬
+    const sortedProblems = [...problemsQueue].sort((a, b) => {
+      // 상태별 우선순위: waiting > processing > completed > failed
+      const priorityMap = { 
+        waiting: 0, 
+        pending: 0, 
+        processing: 1, 
+        completed: 2, 
+        failed: 3 
+      };
       
-      // 완료된 문제인 경우 Firebase에서 코드 가져오기
-      if (status === 'completed') {
-        try {
-          // 로딩 표시
-          loadingElem.classList.remove('hidden');
-          emptyResult.classList.add('hidden');
-          codeResultWrapper.classList.add('hidden');
-          errorContainer.classList.add('hidden');
-          
-          console.log(`Firebase에서 문제 ${problemId} 코드 조회 중...`);
-          
-          // 코드 조회 API 호출
-          const response = await fetch(`${API_URL}/get-problem-code/${problemId}`);
-          
-          if (!response.ok) {
-            const errorData = await response.json();
-            console.error('코드 조회 실패:', errorData);
+      return priorityMap[a.status] - priorityMap[b.status];
+    });
+    
+    // 큐 목록 업데이트
+    problemQueue.innerHTML = '';
+    sortedProblems.forEach(problem => {
+      const tr = document.createElement('tr');
+      tr.className = 'border-t border-gray-200 dark:border-gray-700';
+      
+      // 상태에 따른 배지 스타일
+      let statusBadge = '';
+      switch(problem.status) {
+        case 'waiting':
+        case 'pending':
+          statusBadge = '<span class="px-2 py-1 text-xs rounded-full bg-gray-200 text-gray-800">대기 중</span>';
+          break;
+        case 'processing':
+          statusBadge = '<span class="px-2 py-1 text-xs rounded-full bg-blue-200 text-blue-800">처리 중</span>';
+          break;
+        case 'completed':
+          statusBadge = '<span class="px-2 py-1 text-xs rounded-full bg-green-200 text-green-800">완료</span>';
+          break;
+        case 'failed':
+          statusBadge = '<span class="px-2 py-1 text-xs rounded-full bg-red-200 text-red-800">실패</span>';
+          break;
+      }
+      
+      // 문제 상태에 따라 버튼 텍스트 및 스타일 변경
+      const isCompleted = problem.status === 'completed';
+      const buttonText = isCompleted ? '조회' : '실행';
+      const buttonClass = isCompleted 
+        ? 'text-blue-500 hover:text-blue-700' 
+        : 'text-green-500 hover:text-green-700';
+      
+      tr.innerHTML = `
+        <td class="px-4 py-2">${problem.id}</td>
+        <td class="px-4 py-2">${statusBadge}</td>
+        <td class="px-4 py-2">
+          <button class="${buttonClass} view-btn mr-2" data-id="${problem.id}" data-status="${problem.status}">
+            ${buttonText}
+          </button>
+          <button class="text-red-500 hover:text-red-700 remove-btn" data-id="${problem.id}">
+            삭제
+          </button>
+        </td>
+      `;
+      
+      problemQueue.appendChild(tr);
+    });
+    
+    // 삭제 버튼 이벤트 추가
+    document.querySelectorAll('.remove-btn').forEach(btn => {
+      btn.addEventListener('click', async function() {
+        const problemId = this.getAttribute('data-id');
+        if (confirm(`문제 ${problemId}를 큐에서 삭제하시겠습니까?`)) {
+          try {
+            refreshStatus.textContent = '문제 삭제 중...';
+            refreshStatus.classList.remove('hidden');
             
-            // 조회 실패했지만 상태가 completed면 코드 다시 생성
-            if (errorData.status === 'completed') {
-              showError(`코드 조회 실패: ${errorData.error || '알 수 없는 오류'}. 코드를 다시 생성합니다.`);
+            const response = await fetch(`${API_URL}/delete-problem/${problemId}`, {
+              method: 'DELETE'
+            });
+            
+            if (!response.ok) {
+              const errorData = await response.json();
+              alert(`삭제 실패: ${errorData.error || '알 수 없는 오류'}`);
+              refreshStatus.classList.add('hidden');
+              return;
+            }
+            
+            // 문제 목록 새로고침
+            await loadProblemsFromFirebase(true);
+            
+            refreshStatus.textContent = '문제가 성공적으로 삭제되었습니다';
+            setTimeout(() => {
+              refreshStatus.classList.add('hidden');
+            }, 1500);
+          } catch (err) {
+            console.error('문제 삭제 중 오류:', err);
+            alert('문제 삭제 중 오류가 발생했습니다.');
+            refreshStatus.classList.add('hidden');
+          }
+        }
+      });
+    });
+    
+    // 조회/실행 버튼 이벤트 추가
+    document.querySelectorAll('.view-btn').forEach(btn => {
+      btn.addEventListener('click', async function() {
+        const problemId = this.getAttribute('data-id');
+        const status = this.getAttribute('data-status');
+        document.getElementById('problemId').value = problemId;
+        
+        console.log(`문제 ${problemId} 버튼 클릭, 상태: ${status}`);
+        
+        // 완료된 문제인 경우 Firebase에서 코드 가져오기
+        if (status === 'completed') {
+          try {
+            // 로딩 표시
+            loadingElem.classList.remove('hidden');
+            emptyResult.classList.add('hidden');
+            codeResultWrapper.classList.add('hidden');
+            errorContainer.classList.add('hidden');
+            
+            console.log(`Firebase에서 문제 ${problemId} 코드 조회 요청...`);
+            
+            // 코드 조회 API 호출
+            const response = await fetch(`${API_URL}/get-problem-code/${problemId}`);
+            console.log(`API 응답 상태: ${response.status}`);
+            
+            const responseText = await response.text();
+            console.log(`API 응답 내용: ${responseText.substring(0, 100)}...`);
+            
+            let data;
+            try {
+              // JSON 파싱 시도
+              data = JSON.parse(responseText);
+            } catch (e) {
+              console.error('JSON 파싱 실패:', e);
+              throw new Error('응답 데이터 형식 오류');
+            }
+            
+            if (!response.ok) {
+              console.error('코드 조회 실패:', data);
+              
+              // 가능한 오류 상황별 처리
+              if (data.status === 'completed') {
+                showError(`저장된 코드를 찾을 수 없습니다. 코드를 다시 생성합니다.`);
+                await generateCode(problemId);
+                return;
+              } else if (data.status === 'not_found') {
+                showError(`문제 ${problemId}를 찾을 수 없습니다. 코드를 새로 생성합니다.`);
+                await generateCode(problemId);
+                return;
+              } else {
+                showError(data.error || '알 수 없는 오류');
+                loadingElem.classList.add('hidden');
+                return;
+              }
+            }
+            
+            console.log('Firebase에서 가져온 코드 데이터:', data);
+            
+            if (!data.code) {
+              console.error('코드 데이터가 비어있음');
+              showError('가져온 코드가 비어있습니다. 코드를 다시 생성합니다.');
               await generateCode(problemId);
               return;
             }
             
-            showError(`코드 조회 실패: ${errorData.error || '알 수 없는 오류'}`);
+            // 결과 표시
+            resultTitle.textContent = `백준 ${data.problem_id}번 문제 해결 코드 (저장됨)`;
+            codeResult.textContent = data.code;
+            
+            // 빈 결과 숨기고 코드 표시
+            emptyResult.classList.add('hidden');
+            codeResultWrapper.classList.remove('hidden');
+            
+            // 코드 하이라이팅 적용
+            hljs.highlightElement(codeResult);
+            
+            // 참고 자료 표시
+            sourcesList.innerHTML = '';
+            if (data.sources && data.sources.length > 0) {
+              console.log(`참고 자료 ${data.sources.length}개 표시`);
+              data.sources.forEach((link, idx) => {
+                const host = new URL(link).hostname;
+                const li = document.createElement('li');
+                li.innerHTML = `${idx + 1}. <a href="${link}" target="_blank" class="text-blue-500 hover:underline">${host}</a>`;
+                sourcesList.appendChild(li);
+              });
+            } else {
+              console.log('참고 자료 없음');
+              sourcesList.innerHTML = '<li class="text-gray-500">참고 자료가 없습니다.</li>';
+            }
+            
+          } catch (err) {
+            console.error('코드 조회 중 오류:', err);
+            showError(`코드 조회 중 오류가 발생했습니다: ${err.message}. 코드를 다시 생성합니다.`);
+            await generateCode(problemId);
+          } finally {
             loadingElem.classList.add('hidden');
-            return;
           }
-          
-          const data = await response.json();
-          console.log('Firebase에서 가져온 코드 데이터:', data);
-          
-          // 결과 표시
-          resultTitle.textContent = `백준 ${data.problem_id}번 문제 해결 코드`;
-          codeResult.textContent = data.code;
-          
-          // 빈 결과 숨기고 코드 표시
-          emptyResult.classList.add('hidden');
-          codeResultWrapper.classList.remove('hidden');
-          
-          // 코드 하이라이팅 적용
-          hljs.highlightElement(codeResult);
-          
-          // 참고 자료 표시
-          sourcesList.innerHTML = '';
-          if (data.sources && data.sources.length > 0) {
-            data.sources.forEach((link, idx) => {
-              const host = new URL(link).hostname;
-              const li = document.createElement('li');
-              li.innerHTML = `${idx + 1}. <a href="${link}" target="_blank" class="text-blue-500 hover:underline">${host}</a>`;
-              sourcesList.appendChild(li);
-            });
-          } else {
-            sourcesList.innerHTML = '<li class="text-gray-500">참고 자료가 없습니다.</li>';
-          }
-          
-        } catch (err) {
-          console.error('코드 조회 중 오류:', err);
-          showError('코드 조회 중 오류가 발생했습니다. 코드를 다시 생성합니다.');
+        } else {
+          // 미완료 문제는 생성 요청
+          console.log(`미완료 문제(${status})이므로 코드 생성 요청`);
           await generateCode(problemId);
-        } finally {
-          loadingElem.classList.add('hidden');
         }
-      } else {
-        // 미완료 문제는 생성 요청
-        await generateCode(problemId);
-      }
+      });
     });
-  });
-}  
+  }
+  
   // 복사 버튼 기능
   copyBtn.addEventListener('click', () => {
     // 코드가 있는지 확인
