@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>백준 문제 해결기</title>
+  <!-- 테일윈드 CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 코드 하이라이팅을 위한 Highlight.js -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/languages/java.min.js"></script>
+  <!-- 커스텀 스타일 -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200">
+  <header class="bg-custom-yellow text-gray-800 shadow-md p-4">
+    <div class="container mx-auto">
+      <h1 class="text-2xl font-bold">백준 문제 해결기</h1>
+      <p class="text-sm opacity-80">티스토리 블로그 코드를 활용한 자바 솔루션 생성기</p>
+    </div>
+  </header>
+
+  <main class="container mx-auto p-4 my-8">
+    <div class="flex flex-col md:flex-row gap-6">
+      <!-- 왼쪽 영역: 문제 추가, 즉시 실행, 문제 리스트 -->
+      <div class="md:w-1/2 space-y-6">
+        <!-- 문제 추가 폼 -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+          <h2 class="text-xl font-semibold mb-4">문제 큐에 추가</h2>
+          <form id="addToQueueForm" class="space-y-4">
+            <div>
+              <label for="queueProblemId" class="block mb-2 font-medium">문제 번호</label>
+              <input type="text" id="queueProblemId" 
+                     class="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600" 
+                     placeholder="예: 1000">
+            </div>
+            <button type="submit" 
+                    class="w-full bg-custom-yellow hover:bg-custom-yellow-dark text-gray-800 py-2 px-4 rounded-md transition">
+              큐에 추가하기
+            </button>
+          </form>
+        </div>
+
+        <!-- 즉시 실행 버튼 -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+          <h2 class="text-xl font-semibold mb-4">즉시 실행</h2>
+          <button id="executeOneBtn" 
+                  class="w-full bg-green-500 hover:bg-green-600 text-white py-3 px-4 rounded-md transition font-medium">
+            큐에서 하나의 문제 처리
+          </button>
+          <p class="mt-2 text-sm text-gray-500">현재 큐에 <span id="queueCount">0</span>개의 문제가 있습니다.</p>
+        </div>
+
+        <!-- 문제 리스트 -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+          <h2 class="text-xl font-semibold mb-4">문제 큐</h2>
+          <div class="overflow-y-auto max-h-96">
+            <table class="min-w-full">
+              <thead>
+                <tr>
+                  <th class="px-4 py-2 text-left">문제 번호</th>
+                  <th class="px-4 py-2 text-left">상태</th>
+                  <th class="px-4 py-2 text-left">액션</th>
+                </tr>
+              </thead>
+              <tbody id="problemQueue">
+                <!-- JS로 동적 생성될 부분 -->
+                <!-- 예시 행 -->
+                <tr class="text-gray-500 italic">
+                  <td class="px-4 py-2" colspan="3">큐에 문제가 없습니다.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 오른쪽 영역: 문제 검색, 코드 결과 -->
+      <div class="md:w-1/2 space-y-6">
+        <!-- 검색 폼 -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+          <h2 class="text-xl font-semibold mb-4">백준 문제 검색</h2>
+          <form id="problemForm" class="space-y-4">
+            <div>
+              <label for="problemId" class="block mb-2 font-medium">문제 번호</label>
+              <input type="text" id="problemId" 
+                     class="w-full px-4 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600" 
+                     placeholder="예: 1000">
+              <p class="mt-1 text-sm text-gray-500">백준 문제 번호만 입력해주세요</p>
+            </div>
+            <button type="submit" 
+                    class="w-full bg-custom-yellow hover:bg-custom-yellow-dark text-gray-800 py-2 px-4 rounded-md transition">
+              코드 생성하기
+            </button>
+          </form>
+        </div>
+
+        <!-- 로딩 표시 -->
+        <div id="loading" class="text-center py-12 hidden">
+          <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-custom-yellow border-t-transparent"></div>
+          <p class="mt-4">코드 생성 중입니다...</p>
+        </div>
+
+        <!-- 결과 표시 (처음부터 표시하되, 내용은 비어있음) -->
+        <div id="resultContainer" class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+          <div class="flex justify-between items-start mb-4">
+            <h2 class="text-xl font-semibold" id="resultTitle">코드 결과가 여기에 표시됩니다</h2>
+            <div class="flex space-x-2">
+              <button id="copyBtn" class="px-3 py-1 bg-gray-200 dark:bg-gray-700 rounded-md text-sm hover:bg-gray-300 transition">
+                복사하기
+              </button>
+              <button id="downloadBtn" class="px-3 py-1 bg-gray-200 dark:bg-gray-700 rounded-md text-sm hover:bg-gray-300 transition">
+                다운로드
+              </button>
+            </div>
+          </div>
+          <div class="bg-gray-100 dark:bg-gray-700 rounded-md h-96 flex items-center justify-center text-gray-400" id="emptyResult">
+            <p>문제 번호를 입력하고 코드를 생성해보세요</p>
+          </div>
+          <pre class="overflow-auto max-h-96 hidden" id="codeResultWrapper"><code class="language-java" id="codeResult"></code></pre>
+          
+          <div class="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <h3 class="text-lg font-medium mb-2">참고 자료</h3>
+            <ul id="sourcesList" class="text-sm space-y-1">
+              <li class="text-gray-500">참고 자료가 없습니다.</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 오류 메시지 -->
+        <div id="errorContainer" class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 hidden" role="alert">
+          <p class="font-bold">오류 발생</p>
+          <p id="errorMessage"></p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- JavaScript 파일 -->
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,5 +1,18 @@
 steps:
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'LOCATION-docker.pkg.dev/PROJECT_ID/REPOSITORY/IMAGE_NAME', '.']
-options:
-  logging: CLOUD_LOGGING_ONLY
+# Cloud Storage에 정적 파일 업로드
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: 'gsutil'
+  args: ['-m', 'cp', 'index.html', 'styles.css', 'app.js', 'gs://${_BUCKET_NAME}/']
+
+# 업로드된 파일을 공개적으로 접근 가능하게 설정
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: 'gsutil'
+  args: ['-m', 'acl', 'ch', '-r', '-u', 'AllUsers:R', 'gs://${_BUCKET_NAME}/']
+
+# 웹 설정 (index.html이 기본 페이지가 되도록)
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: 'gsutil'
+  args: ['web', 'set', '-m', 'index.html', 'gs://${_BUCKET_NAME}/']
+
+substitutions:
+  _BUCKET_NAME: autobj1  # Cloud Storage 버킷 이름 (변경해주세요)
