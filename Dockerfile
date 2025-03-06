@@ -9,7 +9,11 @@ ENV PYTHONUNBUFFERED 1
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends gcc
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    build-essential \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
 COPY requirements.txt .
@@ -22,4 +26,4 @@ COPY . .
 EXPOSE 8080
 
 # Run the application
-CMD ["gunicorn", "-b", ":8080", "problem_parser:app"]
+CMD exec gunicorn --bind :8080 --workers 1 --threads 8 --timeout 0 problem_parser:app
