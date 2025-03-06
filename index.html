@@ -46,10 +46,25 @@
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
           <h2 class="text-xl font-semibold mb-4">즉시 실행</h2>
           <button id="executeOneBtn" 
-                  class="w-full bg-green-500 hover:bg-green-600 text-white py-3 px-4 rounded-md transition font-medium">
+                  class="w-full bg-green-500 hover:bg-green-600 text-white py-3 px-4 rounded-md transition font-medium mb-3">
             큐에서 하나의 문제 처리
           </button>
-          <p class="mt-2 text-sm text-gray-500">현재 큐에 <span id="queueCount">0</span>개의 문제가 있습니다.</p>
+          <div class="flex justify-between items-center">
+            <p class="text-sm text-gray-500">현재 큐에 <span id="queueCount">0</span>개의 문제가 있습니다.</p>
+            <button id="refreshQueueBtn" 
+                    class="bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded-md transition text-sm">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              새로고침
+            </button>
+          </div>
+          <div id="refreshStatus" class="mt-2 text-xs text-gray-500 hidden">
+            큐 데이터를 가져오는 중...
+          </div>
+          <div id="lastUpdated" class="mt-2 text-xs text-gray-500">
+            마지막 업데이트: <span id="lastUpdatedTime">-</span>
+          </div>
         </div>
 
         <!-- 문제 리스트 -->
