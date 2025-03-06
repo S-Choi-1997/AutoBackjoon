@@ -14,5 +14,8 @@ steps:
   entrypoint: 'gsutil'
   args: ['web', 'set', '-m', 'index.html', 'gs://${_BUCKET_NAME}/']
 
+options:
+  logging: CLOUD_LOGGING_ONLY
+
 substitutions:
   _BUCKET_NAME: autobj1  # Cloud Storage 버킷 이름 (변경해주세요)
