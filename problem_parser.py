@@ -471,24 +471,55 @@ def run_daily_problem():
 def get_problem_code(problem_id):
     """Firebase에서 특정 문제의 코드를 조회하는 엔드포인트"""
     if not FIREBASE_ENABLED:
-        return jsonify({"error": "Firebase가 비활성화되어 있습니다."}), 500
+        return jsonify({"error": "Firebase가 비활성화되어 있습니다.", "status": "error"}), 500
     
     try:
+        logger.info(f"문제 {problem_id}의 코드 조회 시작")
         # Firebase에서 문제 정보 조회
         problem_ref = db.collection('problems').document(problem_id)
         problem_doc = problem_ref.get()
         
         if not problem_doc.exists:
-            return jsonify({"error": f"문제 {problem_id}를 찾을 수 없습니다."}), 404
+            logger.warning(f"문제 {problem_id}를 Firebase에서 찾을 수 없음")
+            return jsonify({
+                "error": f"문제 {problem_id}를 찾을 수 없습니다.", 
+                "status": "not_found"
+            }), 404
         
         problem_data = problem_doc.to_dict()
+        logger.info(f"Firebase에서 가져온 문제 {problem_id} 데이터: {problem_data}")
         
-        # 완료된 문제가 아니거나 코드가 없는 경우
-        if problem_data.get('status') != 'completed' or 'code' not in problem_data:
+        # 완료된 문제가 아닌 경우
+        if problem_data.get('status') != 'completed':
+            logger.warning(f"문제 {problem_id}가 완료되지 않음. 현재 상태: {problem_data.get('status')}")
             return jsonify({
-                "error": "완료된 코드가 없습니다.",
+                "error": "완료되지 않은 문제입니다.",
                 "status": problem_data.get('status', 'unknown')
             }), 404
+        
+        # 코드가 없는 경우
+        if 'code' not in problem_data:
+            logger.warning(f"문제 {problem_id}에 code 필드가 없음")
+            return jsonify({
+                "error": "완료된 문제이지만 코드 필드가 없습니다.",
+                "status": "completed"
+            }), 404
+        
+        if not problem_data.get('code'):
+            logger.warning(f"문제 {problem_id}의 code 필드가 비어있음")
+            return jsonify({
+                "error": "완료된 문제이지만 코드가 비어있습니다.",
+                "status": "completed"
+            }), 404
+        
+        logger.info(f"문제 {problem_id}의 코드 조회 성공 (코드 길이: {len(problem_data.get('code', ''))}자)")
+        
+        # 소스 정보 로깅
+        sources = problem_data.get('sources', [])
+        if sources:
+            logger.info(f"문제 {problem_id}의 참고 자료: {len(sources)}개")
+        else:
+            logger.info(f"문제 {problem_id}의 참고 자료 없음")
         
         # 문제 코드와 관련 정보 반환
         return jsonify({
@@ -497,11 +528,11 @@ def get_problem_code(problem_id):
             "code": problem_data.get('code', ''),
             "github_upload": problem_data.get('github_upload', '실패 또는 미수행'),
             "github_file": problem_data.get('github_file'),
-            "sources": problem_data.get('sources', [])
+            "sources": sources
         })
     except Exception as e:
-        logger.error(f"코드 조회 중 오류: {e}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"문제 {problem_id} 코드 조회 중 오류: {e}", exc_info=True)
+        return jsonify({"error": str(e), "status": "error"}), 500
 
 # 애플리케이션 실행
 if __name__ == "__main__":
