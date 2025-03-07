@@ -138,12 +138,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
   
-  // Firebase에서 문제 목록 가져오기
-  async function loadProblemsFromFirebase(forceRefresh = false) {
+  // Firebase에서 문제 목록 가져오기 (재시도 로직 추가)
+  async function loadProblemsFromFirebase(forceRefresh = false, retryCount = 0) {
     if (isLoadingQueue && !forceRefresh) return; // 이미 로딩 중이고 강제 새로고침이 아니면 중복 요청 방지
     
+    const maxRetries = 3; // 최대 재시도 횟수
     isLoadingQueue = true;
     refreshStatus.classList.remove('hidden');
+    refreshStatus.textContent = '큐 데이터를 가져오는 중...';
     
     try {
       console.log('Firebase에서 문제 목록 가져오는 중...');
@@ -151,10 +153,21 @@ document.addEventListener('DOMContentLoaded', function() {
       
       if (!response.ok) {
         console.error(`문제 목록 가져오기 오류: ${response.status}`);
-        refreshStatus.textContent = '큐 데이터 가져오기 실패';
+        
+        // 재시도 로직
+        if (retryCount < maxRetries) {
+          refreshStatus.textContent = `큐 데이터 가져오기 실패, 재시도 중 (${retryCount + 1}/${maxRetries})...`;
+          setTimeout(() => {
+            loadProblemsFromFirebase(forceRefresh, retryCount + 1);
+          }, 2000); // 2초 후 재시도
+          return;
+        }
+        
+        refreshStatus.textContent = '큐 데이터 가져오기 실패. 새로고침 버튼을 클릭하여 다시 시도하세요.';
         setTimeout(() => {
           refreshStatus.classList.add('hidden');
-        }, 3000);
+        }, 5000);
+        isLoadingQueue = false;
         return;
       }
       
@@ -182,10 +195,20 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     } catch (err) {
       console.error('문제 목록 로드 중 오류:', err);
-      refreshStatus.textContent = '큐 데이터 가져오기 실패';
+      
+      // 재시도 로직
+      if (retryCount < maxRetries) {
+        refreshStatus.textContent = `큐 데이터 가져오기 실패, 재시도 중 (${retryCount + 1}/${maxRetries})...`;
+        setTimeout(() => {
+          loadProblemsFromFirebase(forceRefresh, retryCount + 1);
+        }, 2000); // 2초 후 재시도
+        return;
+      }
+      
+      refreshStatus.textContent = '큐 데이터 가져오기 실패. 새로고침 버튼을 클릭하여 다시 시도하세요.';
       setTimeout(() => {
         refreshStatus.classList.add('hidden');
-      }, 3000);
+      }, 5000);
     } finally {
       isLoadingQueue = false;
     }
@@ -596,6 +619,6 @@ document.addEventListener('DOMContentLoaded', function() {
     loadingElem.classList.add('hidden');
   }
   
-  // 자동 새로고침 설정 (30초마다 Firebase 상태 업데이트)
-  setInterval(() => loadProblemsFromFirebase(), 30000);
+  // 자동 새로고침을 사용하지 않음 (30초 자동 새로고침 제거)
+  // setInterval(() => loadProblemsFromFirebase(), 30000);
 });
