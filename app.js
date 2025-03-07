@@ -7,7 +7,7 @@ if (window.location.hostname === 'localhost' || window.location.hostname === '12
   API_URL = 'http://localhost:8080';
 } else {
   // 운영 환경 - Cloud Run URL (실제 배포 URL로 변경해야 함)
-  API_URL = 'https://autobackjoon-28424568480.us-central1.run.app/';
+  API_URL = 'https://autobackjoon-28424568480.us-central1.run.app';
 }
 
 console.log(`API 서버 URL: ${API_URL}`);
